@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ads List Checker</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    textarea { width: 100%; height: 150px; margin-bottom: 10px; }
+    button { padding: 10px 15px; margin-top: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f4f4f4; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h2>Ads List Checker</h2>
+  <label>Paste TSV Product Data:</label>
+  <textarea id="tsvInput" placeholder="Paste TSV here..."></textarea>
+
+  <label>Paste Current Ad SKUs TSV (Style and B2C SKU columns):</label>
+  <textarea id="skuInput" placeholder="Paste Current Ad SKU TSV..."></textarea>
+
+  <button onclick="processData()">Generate ADD/REMOVE List</button>
+  <button id="downloadBtn" onclick="downloadExcel()" style="display:none; margin-left: 10px; background-color: #28a745; color: white;">Download Excel File</button>
+
+  <p><a href="https://docs.google.com/spreadsheets/d/1xNetZeT-nXJuEWuF38dIvYyT7A-ZDSsz0-1LodCy8go/edit?gid=1420574583#gid=1420574583" target="_blank">Weekly Ads Doc</a></p>
+
+  <div id="output"></div>
+  <div id="addOutput"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script>
+    let removalData = [];
+    let addData = [];
+    function parseTSV(tsv) {
+      const lines = tsv.trim().split('\n');
+      const headers = lines[0].split('\t');
+      return lines.slice(1).map(line => {
+        const values = line.split('\t');
+        const entry = {};
+        headers.forEach((h, i) => entry[h.trim()] = values[i]?.trim());
+        return entry;
+      });
+    }
+
+    function isCoreSize(size) {
+      return ["S", "M", "L", "One Size"].includes(size);
+    }
+
+    function processData() {
+      const tsv = document.getElementById("tsvInput").value;
+      const adTSV = document.getElementById("skuInput").value;
+
+      const adData = parseTSV(adTSV);
+      const adSKUs = new Set(adData.map(row => row["SKU"])); // Changed from "B2C SKU" to "SKU"
+
+      const data = parseTSV(tsv);
+      const styles = {};
+      const addList = [];
+      const removalStylesSet = new Set();
+
+      for (const row of data) {
+        const style = row["Style"];
+        if (!style) continue;
+        if (!styles[style]) styles[style] = { title: row["Title"], rows: [] };
+        styles[style].rows.push(row);
+      }
+
+      const result = [];
+      removalData = []; // Reset removal data
+
+      addData = []; // Reset add data
+      for (const style in styles) {
+        const { title, rows } = styles[style];
+        const reasons = new Set();
+        const triggerSKUs = {};
+
+        const goLiveValid = rows.some(r => {
+          const days = parseInt(r["Days from Go Live Date"]);
+          return !isNaN(days) && days > 7;
+        });
+        
+        // Check if style has markdown items
+        const hasMarkdownItems = rows.some(r => r["Markdown"] === "1");
+        
+        // Skip styles that don't meet go-live criteria AND don't have markdown items
+        if (!goLiveValid && !hasMarkdownItems) continue;
+
+        const isInAd = rows.some(r => adSKUs.has(r["SKU"])); // Changed from "B2C SKU" to "SKU"
+        if (isInAd) {
+          // Double-check: Only proceed if this style actually has SKUs in current ads
+          const styleInAdSKUs = rows.filter(r => adSKUs.has(r["SKU"])); // Changed from "B2C SKU" to "SKU"
+          if (styleInAdSKUs.length === 0) continue; // Skip if no SKUs are in ads
+          const coreSizes = rows.filter(r => isCoreSize(r["Size"]));
+          
+          // Low WOS: Complex logic for core sizes and One Size
+          let shouldFlagLowWOS = false;
+          
+          // Check S, M, L sizes (at least 2 must have COH ÷ Sales < 3)
+          const smlSizes = coreSizes.filter(r => ["S", "M", "L"].includes(r["Size"]));
+          const lowWOSSMLSizes = smlSizes.filter(r => {
+            const coh = parseFloat(r["COH"]);
+            const sales = parseFloat(r["Sum of Unit SLS 1 Ago 2"]);
+            return sales > 0 ? (coh / sales) < 3 : false;
+          });
+          
+          if (lowWOSSMLSizes.length >= 2) {
+            shouldFlagLowWOS = true;
+          }
+          
+          // Check One Size: COH ÷ Sales < 3 OR COH ≤ 1
+          const oneSizeItems = coreSizes.filter(r => r["Size"] === "One Size");
+          const problematicOneSize = oneSizeItems.some(r => {
+            const coh = parseFloat(r["COH"]);
+            const sales = parseFloat(r["Sum of Unit SLS 1 Ago 2"]);
+            const lowWOS = sales > 0 ? (coh / sales) < 3 : false;
+            const lowCOH = coh <= 1;
+            return lowWOS || lowCOH;
+          });
+          
+          if (problematicOneSize) {
+            shouldFlagLowWOS = true;
+          }
+          
+          if (shouldFlagLowWOS) {
+            reasons.add("Low WOS");
+            triggerSKUs["Low WOS"] = rows.filter(r => adSKUs.has(r["SKU"])).map(r => r["SKU"]); // All SKUs in ads
+          }
+
+          const totalSales = rows.reduce((sum, r) => sum + (parseFloat(r["Sum of Unit SLS 1 Ago 2"]) || 0), 0);
+          if (totalSales <= 3) {
+            // For "Slow" rule, only include SKUs with Days from Go Live Date > 14 OR < 0 (negative)
+            const slowSKUs = rows.filter(r => {
+              const days = parseInt(r["Days from Go Live Date"]);
+              return adSKUs.has(r["SKU"]) && !isNaN(days) && (days > 14 || days < 0);
+            });
+            
+            if (slowSKUs.length > 0) {
+              reasons.add("Slow");
+              triggerSKUs["Slow"] = slowSKUs.map(r => r["SKU"]);
+            }
+          }
+
+          const belowPrice = rows.filter(r => parseFloat(r["Special Price"]) < 14.95 && adSKUs.has(r["SKU"])); // Changed from "B2C SKU" to "SKU"
+          if (belowPrice.length) {
+            reasons.add("Below Price Point");
+            triggerSKUs["Below Price Point"] = belowPrice.map(r => r["SKU"]); // Changed from "B2C SKU" to "SKU"
+          }
+
+          const markdown = rows.filter(r => r["Markdown"] === "1" && adSKUs.has(r["SKU"])); // Changed from "B2C SKU" to "SKU"
+          if (markdown.length) {
+            reasons.add("Markdown");
+            triggerSKUs["Markdown"] = markdown.map(r => r["SKU"]); // Changed from "B2C SKU" to "SKU"
+          }
+
+          // Broken Sizes: If one or more core sizes has COH ≤ 1, flag style and include ALL SKUs
+          const hasBrokenSizes = coreSizes.some(r => parseFloat(r["COH"]) <= 1);
+          
+          if (hasBrokenSizes) {
+            reasons.add("Broken Sizes");
+            triggerSKUs["Broken Sizes"] = rows.filter(r => adSKUs.has(r["SKU"])).map(r => r["SKU"]); // All SKUs in ads
+          }
+
+          if (reasons.size) {
+            // Only add to results if there are actually triggering SKUs in current ads
+            const hasValidTriggerSKUs = Object.values(triggerSKUs).some(skuArray => 
+              skuArray.some(sku => adSKUs.has(sku))
+            );
+            
+            if (hasValidTriggerSKUs) {
+              result.push({ style, title, reasons: Array.from(reasons), triggerSKUs });
+              removalStylesSet.add(style);
+              
+              // Add to removalData for export - only SKUs that are in current ads
+              Object.keys(triggerSKUs).forEach(reason => {
+                triggerSKUs[reason].forEach(sku => {
+                  if (adSKUs.has(sku)) {
+                    // Find the specific row for this SKU to get its title
+                    const skuRow = rows.find(r => r["SKU"] === sku);
+                    const skuTitle = skuRow ? skuRow["Title"] : title; // Fallback to style title if SKU not found
+                    
+                    removalData.push({
+                      STYLE: style,
+                      SKU: sku,
+                      TITLE: skuTitle,
+                      'REASON/TRIGGER RULE': reason
+                    });
+                  }
+                });
+              });
+            }
+          }
+        }
+      }
+
+      for (const style in styles) {
+        if (removalStylesSet.has(style)) continue;
+        const adStyleIncluded = adData.some(r => r["STYLE"]?.trim() === style.trim() || r["SKU"] && styles[style].rows.some(p => p["SKU"] === r["SKU"])); // Changed column names
+        if (adStyleIncluded) continue;
+        const { title, rows } = styles[style];
+
+        const coreSizes = rows.filter(r => isCoreSize(r["Size"]));
+        const validWOS = coreSizes.every(r => {
+          const coh = parseFloat(r["COH"]);
+          const sales = parseFloat(r["Sum of Unit SLS 1 Ago 2"]);
+          return sales > 0 ? (coh / sales) >= 3 : true;
+        });
+
+        const hasMarkdown = rows.some(r => r["Markdown"] === "1");
+        const allPriceOK = rows.every(r => parseFloat(r["Special Price"]) >= 14.95);
+        const totalSalesAll = rows.reduce((sum, r) => sum + (parseFloat(r["Sum of Unit SLS 1 Ago 2"]) || 0), 0);
+
+        if (totalSalesAll >= 5 && validWOS && !hasMarkdown && allPriceOK) {
+          addList.push({ style, title, totalSales: totalSalesAll });
+          
+          // Add to addData for export - include all SKUs for the style
+          rows.forEach(row => {
+            addData.push({
+              STYLE: style,
+              SKU: row["SKU"], // Changed from "B2C SKU" to "SKU"
+              'REASON/TRIGGER RULE': 'Meets Add Criteria (Sales ≥ 5, WOS ≥ 3, Price ≥ 14.95, No Markdown)'
+            });
+          });
+        }
+      }
+
+      const output = document.getElementById("output");
+      output.innerHTML = "<h3>Removal List</h3>";
+      if (!result.length) {
+        output.innerHTML += "<p><strong>No styles met the removal criteria.</strong></p>";
+      } else {
+        const table = document.createElement("table");
+        const header = table.insertRow();
+        ["Style Number", "Title", "Reasons", "SKUs Triggering Each Rule"].forEach(text => {
+          const th = document.createElement("th");
+          th.textContent = text;
+          header.appendChild(th);
+        });
+
+        result.forEach(r => {
+          const row = table.insertRow();
+          row.insertCell().textContent = r.style;
+          row.insertCell().textContent = r.title;
+          row.insertCell().textContent = r.reasons.join(", ");
+
+          const triggerCell = row.insertCell();
+          r.reasons.forEach(reason => {
+            const div = document.createElement("div");
+            // Only show SKUs that are actually in current ads
+            const adSKUsForReason = r.triggerSKUs[reason].filter(sku => adSKUs.has(sku));
+            if (adSKUsForReason.length > 0) {
+              div.textContent = `${reason}: [${adSKUsForReason.join(", ")}]`;
+              triggerCell.appendChild(div);
+            }
+          });
+        });
+
+        output.appendChild(table);
+      }
+
+      const addOutput = document.getElementById("addOutput");
+      addOutput.innerHTML = "<h3>ADD List (Total Sales ≥ 5, WOS ≥ 3, Price ≥ 14.95, No Markdown, Not in Current Ads)</h3>";
+      if (!addList.length) {
+        addOutput.innerHTML += "<p><strong>No styles met the add criteria.</strong></p>";
+      } else {
+        const table = document.createElement("table");
+        const header = table.insertRow();
+        ["Style Number", "Title", "Total Sales"].forEach(text => {
+          const th = document.createElement("th");
+          th.textContent = text;
+          header.appendChild(th);
+        });
+
+        addList.forEach(r => {
+          const row = table.insertRow();
+          row.insertCell().textContent = r.style;
+          row.insertCell().textContent = r.title;
+          row.insertCell().textContent = r.totalSales;
+        });
+
+        addOutput.appendChild(table);
+      }
+      
+      // Show download button if there's data to export
+      const downloadBtn = document.getElementById("downloadBtn");
+      if (removalData.length > 0 || addData.length > 0) {
+        downloadBtn.style.display = "inline-block";
+      } else {
+        downloadBtn.style.display = "none";
+      }
+    }
+
+    function downloadExcel() {
+      try {
+        // Check if XLSX is loaded
+        if (typeof XLSX === 'undefined') {
+          alert('Excel library not loaded. Please refresh the page and try again.');
+          return;
+        }
+
+        // Create workbook
+        const wb = XLSX.utils.book_new();
+        
+        // Consolidate removal data by SKU
+        const consolidatedRemovalData = [];
+        if (removalData.length > 0) {
+          const skuMap = {};
+          
+          removalData.forEach(item => {
+            const key = `${item.STYLE}_${item.SKU}`;
+            if (!skuMap[key]) {
+              skuMap[key] = {
+                STYLE: item.STYLE,
+                SKU: item.SKU,
+                TITLE: item.TITLE,
+                reasons: []
+              };
+            }
+            if (!skuMap[key].reasons.includes(item['REASON/TRIGGER RULE'])) {
+              skuMap[key].reasons.push(item['REASON/TRIGGER RULE']);
+            }
+          });
+          
+          Object.values(skuMap).forEach(item => {
+            consolidatedRemovalData.push({
+              STYLE: item.STYLE,
+              SKU: item.SKU,
+              TITLE: item.TITLE,
+              'REASON/TRIGGER RULE': item.reasons.join(', ')
+            });
+          });
+        }
+        
+        // Create removal worksheet
+        if (consolidatedRemovalData.length > 0) {
+          const wsRemoval = XLSX.utils.json_to_sheet(consolidatedRemovalData);
+          XLSX.utils.book_append_sheet(wb, wsRemoval, "Removal List");
+        } else {
+          // Create empty sheet with headers if no data
+          const wsRemoval = XLSX.utils.json_to_sheet([{
+            'STYLE': '',
+            'SKU': '',
+            'TITLE': '',
+            'REASON/TRIGGER RULE': ''
+          }]);
+          XLSX.utils.book_append_sheet(wb, wsRemoval, "Removal List");
+        }
+        
+        // Consolidate add data by SKU (though this is less likely to have duplicates)
+        const consolidatedAddData = [];
+        if (addData.length > 0) {
+          const skuMap = {};
+          
+          addData.forEach(item => {
+            const key = `${item.STYLE}_${item.SKU}`;
+            if (!skuMap[key]) {
+              skuMap[key] = {
+                STYLE: item.STYLE,
+                SKU: item.SKU,
+                TITLE: item.TITLE,
+                reasons: []
+              };
+            }
+            if (!skuMap[key].reasons.includes(item['REASON/TRIGGER RULE'])) {
+              skuMap[key].reasons.push(item['REASON/TRIGGER RULE']);
+            }
+          });
+          
+          Object.values(skuMap).forEach(item => {
+            consolidatedAddData.push({
+              STYLE: item.STYLE,
+              SKU: item.SKU,
+              TITLE: item.TITLE,
+              'REASON/TRIGGER RULE': item.reasons.join(', ')
+            });
+          });
+        }
+        
+        // Create add worksheet
+        if (consolidatedAddData.length > 0) {
+          const wsAdd = XLSX.utils.json_to_sheet(consolidatedAddData);
+          XLSX.utils.book_append_sheet(wb, wsAdd, "Add List");
+        } else {
+          // Create empty sheet with headers if no data
+          const wsAdd = XLSX.utils.json_to_sheet([{
+            'STYLE': '',
+            'SKU': '',
+            'TITLE': '',
+            'REASON/TRIGGER RULE': ''
+          }]);
+          XLSX.utils.book_append_sheet(wb, wsAdd, "Add List");
+        }
+        
+        // Generate filename with current date
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+        const filename = `Product_ADD_REMOVE_Lists_${dateStr}.xlsx`;
+        
+        // Save file
+        XLSX.writeFile(wb, filename);
+        
+      } catch (error) {
+        console.error('Error creating Excel file:', error);
+        alert('Error creating Excel file: ' + error.message);
+      }
+    }
+  </script>
+</body>
+</html>
