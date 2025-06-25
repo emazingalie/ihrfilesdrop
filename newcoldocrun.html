@@ -1,0 +1,181 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Product Input Tool with Sidebar on Left</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; padding: 20px; gap: 30px; flex-direction: row; }
+        textarea { width: 100%; margin: 10px 0; }
+        #main { flex: 1; }
+        #dropZone {
+            width: 100%; height: 150px; border: 2px dashed #aaa;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 10px; background: #f9f9f9; color: #555;
+        }
+        #preview {
+            display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;
+        }
+        #preview img {
+            max-width: 100px;
+            max-height: 100px;
+            border: 1px solid #ccc;
+            object-fit: cover;
+        }
+        button { padding: 10px 15px; margin-top: 10px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; font-size: 12px; }
+        th, td { border: 1px solid #aaa; padding: 6px; text-align: left; }
+        .red-text { color: red; font-weight: bold; }
+        #sidebar {
+            width: 280px;
+            background: #f3f3f3;
+            padding: 15px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+        #sidebar ol { padding-left: 20px; }
+        .warning { color: red; margin-top: 10px; }
+    </style>
+</head>
+<body>
+<div id="sidebar">
+    <h3>🧾 Each Batch Needs 11 Lines:</h3>
+    <ol>
+        <li>Vendor</li>
+        <li>Description</li>
+        <li>MPN/Style No.</li>
+        <li>Owner</li>
+        <li>Cost ($)</li>
+        <li>Retail ($)</li>
+        <li>Size Range</li>
+        <li>Collection</li>
+        <li>ETA (mm/dd/yyyy)</li>
+        <li>MOQ</li>
+        <li>(Image = use drop zone)</li>
+    </ol>
+    <p><strong>Tips:</strong></p>
+    <ul>
+        <li>Use double line breaks between products</li>
+        <li>Use clipboard to paste images directly</li>
+        <li>One image per product</li>
+    </ul>
+</div>
+
+<div id="main">
+    <h2>Complete Product Data Entry Tool</h2>
+    <textarea id="inputData" rows="25" placeholder="Enter multiple product entries here. Separate each batch with a blank line. Each batch should follow the 11-line format."></textarea>
+
+    <div id="dropZone">Drop or paste images here (one per product batch)</div>
+    <div id="preview"></div>
+    <button onclick="generateTemplate()">Generate Output</button>
+
+    <div class="warning" id="warningMessage"></div>
+    <div id="output"></div>
+</div>
+
+<script>
+    let imageLinks = [];
+    const dropZone = document.getElementById('dropZone');
+    const previewContainer = document.getElementById('preview');
+
+    dropZone.addEventListener('paste', async (e) => {
+        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.kind === 'file') {
+                const file = item.getAsFile();
+                showPreview(file);
+                await uploadImageToImgur(file);
+            }
+        }
+    });
+
+    function showPreview(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = document.createElement("img");
+            img.src = e.target.result;
+            previewContainer.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async function uploadImageToImgur(file) {
+        const formData = new FormData();
+        formData.append("image", file);
+
+        const response = await fetch("https://api.imgur.com/3/image", {
+            method: "POST",
+            headers: {
+                Authorization: "Client-ID b42a88d4f5e048c"
+            },
+            body: formData
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            imageLinks.push(data.data.link);
+        } else {
+            imageLinks.push("");
+        }
+    }
+
+    function format(val) {
+        return val === "0" ? "" : val;
+    }
+
+    function generateTemplate() {
+        const rawData = document.getElementById('inputData').value.trim();
+        const batches = rawData.split(/\n\s*\n/);
+        const output = document.getElementById('output');
+        const warningBox = document.getElementById('warningMessage');
+        let validCount = 0;
+        let invalidCount = 0;
+
+        const headers = [
+            "PO", "Units", "Inventory", "Notes", "PhotoShoot Availability", "Image", "Owner", "Product Title",
+            "Alt text", "Collection", "Supplier", "MPN", "Parent SKU", "Color", "Color 1", "Color 2", "Color 3",
+            "New Colors", "Product Type", "Product Filter 1", "Product Filter 2 Fabric", "Silhouette",
+            "Embellishment", "Fabric", "Print Type", "Mandatory Division", "Mandatory Lifecycle",
+            "Mandatory Seasonality", "Size", "Cost", "Retail", "Mandatory Amazon Retail Price",
+            "Gross Profit Margin", "AMZ Gross Profit Margin", "High Margin/Low Margin",
+            "AMZ High Margin/Low Margin", "List on AMZ", "Exclusive", "Department",
+            "Country of Origin (Fast Fashion)"
+        ];
+
+        let table = "<table><tr>" + headers.map(h => `<th>${h}</th>`).join("") + "</tr>";
+
+        batches.forEach((batch, index) => {
+            const lines = batch.trim().split(/\r?\n/).map(l => l.trim());
+            if (lines.length < 10) {
+                invalidCount++;
+                return;
+            }
+
+            const [vendor, description, mpn, owner, cost, retail, sizeRange, collection, eta, moq] = lines.slice(0, 10).map(format);
+            const imgUrl = imageLinks[index] || "";
+            const imgLink = imgUrl ? `=IMAGE("${imgUrl}")` : "";
+
+            const exclusive = owner && owner !== "Maryanne" ? "Yes" : "";
+            const department = ["Steph", "Tamara", "Ash"].includes(owner) ? "Rave Wear" : (owner === "Maryanne" ? "Accessories" : "");
+
+            const red = (txt) => `<span class='red-text'>${txt}</span>`;
+
+            const values = [
+                "", moq, eta, "", "", imgLink, owner, description, "", collection, vendor, mpn, "",
+                red("Copy Paste Formula"), "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", sizeRange, cost, retail,
+                red("Copy Paste Formula"), red("Copy Paste Formula"), red("Copy Paste Formula"),
+                red("Copy Paste Formula"), red("Copy Paste Formula"), "No", exclusive, department, "China"
+            ];
+
+            table += "<tr>" + values.map(v => `<td>${v}</td>`).join("") + "</tr>";
+            validCount++;
+        });
+
+        table += "</table>";
+        output.innerHTML = table;
+
+        warningBox.innerHTML = `✅ <strong>${validCount}</strong> rows generated. ⚠️ <strong>${invalidCount}</strong> batch(es) skipped due to formatting issues.`;
+    }
+</script>
+</body>
+</html>
