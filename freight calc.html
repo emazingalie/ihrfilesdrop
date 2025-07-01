@@ -25,6 +25,9 @@
   <label>Enter Total Freight Cost:</label>
   <input type="number" id="freightInput" step="0.01" placeholder="e.g. 250.00">
 
+  <label>Enter Total Packaging Cost:</label>
+  <input type="number" id="packagingInput" step="0.01" placeholder="e.g. 50.00">
+
   <label>Paste PO Data (TSV format - must include columns: PO Number, SKU, Quantity in Transit, Quantity Received, PO Status, Price, Product Title, COGS):</label>
   <textarea id="poData" rows="12" placeholder="Department\tSupplier\tPO Number\t...\tSKU\t...\tQuantity in Transit\tQuantity Received\tPO Status\tPrice\tProduct Title\tCOGS"></textarea>
 
@@ -39,7 +42,8 @@
 
     function calculateFreightGM() {
       const poNumbers = document.getElementById("poInput").value.split(',').map(po => po.trim());
-      const totalFreight = parseFloat(document.getElementById("freightInput").value);
+      const totalFreight = parseFloat(document.getElementById("freightInput").value) || 0;
+      const totalPackaging = parseFloat(document.getElementById("packagingInput").value) || 0;
       const poRows = parseTSV(document.getElementById("poData").value);
 
       const poHeader = poRows[0];
@@ -55,16 +59,32 @@
 
       const filteredPOs = poRows.slice(1).filter(row => poNumbers.includes(row[poNumberIndex]?.trim()));
 
-      const totalQty = filteredPOs.reduce((sum, row) => {
+      let totalQty = 0;
+      let totalInvoiceCost = 0;
+
+      const processedRows = filteredPOs.map(row => {
         const status = row[statusIndex]?.toLowerCase();
         const qty = status === 'completed' ? parseFloat(row[qtyReceivedIndex]) : parseFloat(row[qtyTransitIndex]);
-        return sum + (isNaN(qty) ? 0 : qty);
-      }, 0);
+        const cogs = parseFloat(row[cogsIndex]) || 0;
 
-      const freightPerUnit = totalFreight / totalQty;
+        if (!isNaN(qty)) {
+          totalQty += qty;
+          totalInvoiceCost += qty * cogs;
+        }
+
+        return { row, qty, cogs };
+      });
+
+      const costPerUnit = (totalFreight + totalPackaging) / totalQty;
+      const totalWithFreightPackaging = totalInvoiceCost + totalFreight + totalPackaging;
 
       let output = `
         <h3>Results</h3>
+        <p><strong>Total Invoice Cost (COGS x Quantity):</strong> $${totalInvoiceCost.toFixed(2)}</p>
+        <p><strong>Total Freight + Packaging Cost:</strong> $${(totalFreight + totalPackaging).toFixed(2)}</p>
+        <p><strong>Total Freight + Packaging per Unit:</strong> $${costPerUnit.toFixed(2)}</p>
+        <p><strong>Total Cost (Invoice + Freight + Packaging):</strong> $${totalWithFreightPackaging.toFixed(2)}</p>
+
         <table>
           <tr>
             <th>PO Number</th>
@@ -73,21 +93,18 @@
             <th>Quantity</th>
             <th>Price</th>
             <th>COGS</th>
-            <th>Freight/Unit</th>
+            <th>Freight+Packaging/Unit</th>
             <th>Total Unit Cost</th>
             <th>Gross Margin %</th>
           </tr>
       `;
 
-      filteredPOs.forEach(row => {
+      processedRows.forEach(({ row, qty, cogs }) => {
         const po = row[poNumberIndex];
         const sku = row[skuIndex];
         const title = row[titleIndex] || "";
-        const status = row[statusIndex]?.toLowerCase();
-        const qty = status === 'completed' ? parseFloat(row[qtyReceivedIndex]) : parseFloat(row[qtyTransitIndex]);
         const price = parseFloat(row[priceIndex]);
-        const unitCost = parseFloat(row[cogsIndex]) || 0;
-        const totalUnitCost = unitCost + freightPerUnit;
+        const totalUnitCost = cogs + costPerUnit;
         const gm = ((price - totalUnitCost) / price) * 100;
         const gmClass = gm < 70 ? 'low-gm' : '';
 
@@ -98,8 +115,8 @@
             <td>${title}</td>
             <td>${qty}</td>
             <td>${price.toFixed(2)}</td>
-            <td>${unitCost.toFixed(2)}</td>
-            <td>${freightPerUnit.toFixed(2)}</td>
+            <td>${cogs.toFixed(2)}</td>
+            <td>${costPerUnit.toFixed(2)}</td>
             <td>${totalUnitCost.toFixed(2)}</td>
             <td class="${gmClass}">${gm.toFixed(2)}%</td>
           </tr>
