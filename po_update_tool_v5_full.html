@@ -1,0 +1,190 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PO Update Tool v5</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    textarea, select, input, button { margin: 10px 0; display: block; width: 100%; padding: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f2f2f2; }
+    td[contenteditable="true"] { background: #ffffcc; }
+  </style>
+</head>
+<body>
+  <h2>PO Input Sheet</h2>
+  <p>Paste tab-delimited data here (use Ctrl+Shift+V from this report: 
+  <a href="https://emazing.my.salesforce.com/00OPH000007JUO9" target="_blank">Salesforce PO Drop Report</a>)</p>
+  <textarea id="inputData" rows="10" placeholder="Paste your PO drop data here (tab-delimited)"></textarea>
+
+  <h3>Select Update Type</h3>
+  <select id="updateType">
+    <option value="status">Status</option>
+    <option value="purchase_price">Purchase Price</option>
+    <option value="total_qty">Quantity Ordered</option>
+    <option value="qty_transit">Quantity in Transit</option>
+    <option value="memo">Memo</option>
+    <option value="note_vendor">Note to Vendor</option>
+    <option value="tracking_number">Tracking Number</option>
+    <option value="ship_via">Ship Via</option>
+    <option value="start_ship">Start Ship Date</option>
+    <option value="whse_cxl">In Warehouse CXL Date</option>
+    <option value="multi_text">Multiple Fields to Edit</option>
+    <option value="ready_to_close">Generate All Received POs Ready to Close</option>
+    <option value="check_units">Generate All Received POs to Check Units</option>
+  </select>
+
+  <input id="poNumber" placeholder="Enter PO Number(s), separated by comma, tab, or new line">
+  <button onclick="processData()">Generate Output</button>
+
+  <div style="margin-top:20px;">
+    <strong>Bulk Update to this link:</strong> 
+    <a href="https://emazing.lightning.force.com/dataImporter/dataImporter.app" target="_blank">SF DATA IMPORT WIZARD</a>
+  </div>
+
+  <div id="output"></div>
+  <button id="downloadBtn" style="display:none;" onclick="downloadCSV()">Download CSV</button>
+
+<script>
+let parsedData = [];
+
+function parseInputData() {
+  const lines = document.getElementById('inputData').value.trim().split('\n');
+  const headers = lines[0].split('\t');
+  parsedData = lines.slice(1).map(line => {
+    const cells = line.split('\t');
+    let row = {};
+    headers.forEach((h, i) => row[h.trim()] = cells[i]?.trim());
+    return row;
+  });
+}
+
+function processData() {
+  parseInputData();
+  const type = document.getElementById('updateType').value;
+  const poInput = document.getElementById('poNumber').value;
+  const poNumbers = poInput.split(/,|\t|\n|\r/).map(p => p.trim()).filter(p => p);
+  const results = [];
+  let headers = ["PO Number"];
+  let editableCols = new Set();
+
+  const includePO = (row) => poNumbers.length === 0 || poNumbers.includes(row["PO Number"]);
+
+  const matchAndPush = (row, cols, editableIndexes) => {
+    const data = [row["PO Number"]];
+    cols.slice(1).forEach(col => data.push(row[col] || ""));
+    results.push(data);
+    editableCols = new Set(editableIndexes.map(i => i + 1)); // shift by 1 due to PO Number
+    headers = cols;
+  };
+
+  if (type === 'ready_to_close' || type === 'check_units') {
+    const groupByPO = {};
+    parsedData.forEach(row => {
+      const po = row["PO Number"];
+      if (!groupByPO[po]) groupByPO[po] = [];
+      groupByPO[po].push(row);
+    });
+
+    for (const [po, rows] of Object.entries(groupByPO)) {
+      const status = rows[0]["PO Status"];
+      const allReceived = rows.every(r => r["Quantity in Transit"] === r["Quantity Received"]);
+      const isEligible = (
+        (type === 'ready_to_close' && status === "Received" && allReceived) ||
+        (type === 'check_units' && (status === "Received" || status === "Partially Received"))
+      );
+
+      if (isEligible) {
+        rows.forEach(row => {
+          results.push([
+            row["PO Number"], row["SKU"], row["Purchase Price"], row["Total Quantity Ordered"], row["Quantity in Transit"],
+            row["Quantity Received"], row["Purchase Order: Start Ship Date"], row["Purchase Order: In Warehouse CXL Date"],
+            row["Purchase Order: Ship Via"], row["Purchase Order: Tracking Number"], row["Purchase Order: Memo"],
+            row["Purchase Order: Note to Vendor"], "Completed"
+          ]);
+        });
+        headers = ["PO Number", "SKU", "Purchase Price", "Quantity Ordered", "Quantity in Transit", "Quantity Received",
+          "Start Ship Date", "In Warehouse CXL Date", "Ship Via", "Tracking Number", "Memo", "Note to Vendor", "Status"];
+        editableCols = new Set(headers.map((_, i) => i));
+      }
+    }
+
+  } else {
+    parsedData.forEach(row => {
+      if (!includePO(row)) return;
+      switch (type) {
+        case "status":
+          matchAndPush(row, ["PO Number", "SKU", "Total Quantity Ordered", "Quantity in Transit", "Quantity Received", "PO Status", "Purchase Order: Tracking Number"], [5]);
+          break;
+        case "purchase_price":
+          matchAndPush(row, ["PO Number", "SKU", "Quantity in Transit", "Purchase Price"], [3]);
+          break;
+        case "total_qty":
+          matchAndPush(row, ["PO Number", "SKU", "Total Quantity Ordered", "Quantity in Transit"], [2]);
+          break;
+        case "qty_transit":
+          matchAndPush(row, ["PO Number", "SKU", "Total Quantity Ordered", "Quantity in Transit"], [3]);
+          break;
+        case "memo":
+          matchAndPush(row, ["PO Number", "PO Status", "Purchase Order: Memo"], [2]);
+          break;
+        case "note_vendor":
+          matchAndPush(row, ["PO Number", "PO Status", "Purchase Order: Note to Vendor"], [2]);
+          break;
+        case "tracking_number":
+          matchAndPush(row, ["PO Number", "PO Status", "Purchase Order: Tracking Number", "Purchase Order: Ship Via"], [2]);
+          break;
+        case "ship_via":
+          matchAndPush(row, ["PO Number", "PO Status", "Purchase Order: In Warehouse CXL Date", "Purchase Order: Ship Via", "Purchase Order: Tracking Number"], [3]);
+          break;
+        case "start_ship":
+          matchAndPush(row, ["PO Number", "SKU", "Quantity in Transit", "Purchase Order: Start Ship Date", "Purchase Order: In Warehouse CXL Date", "Purchase Order: Ship Via", "Purchase Order: Tracking Number"], [3]);
+          break;
+        case "whse_cxl":
+          matchAndPush(row, ["PO Number", "SKU", "Quantity in Transit", "Purchase Order: Start Ship Date", "Purchase Order: In Warehouse CXL Date", "Purchase Order: Ship Via", "Purchase Order: Tracking Number"], [4]);
+          break;
+        case "multi_text":
+          matchAndPush(row, ["PO Number", "SKU", "Purchase Price", "Total Quantity Ordered", "Quantity in Transit", "Quantity Received", "PO Status", "Purchase Order: Start Ship Date", "Purchase Order: In Warehouse CXL Date", "Purchase Order: Ship Via", "Purchase Order: Tracking Number", "Purchase Order: Memo", "Purchase Order: Note to Vendor"], [0,2,3,4,6,7,8,9,10,11,12]);
+          break;
+      }
+    });
+  }
+
+  if (!results.length) return alert("No matching data found.");
+  showTable(headers, results, editableCols);
+}
+
+function showTable(headers, rows, editableCols) {
+  const output = document.getElementById('output');
+  let html = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach(row => {
+    html += '<tr>' + row.map((cell, i) => `<td${editableCols.has(i) ? ' contenteditable="true"' : ''}>${cell}</td>`).join('') + '</tr>';
+  });
+  html += '</tbody></table>';
+  output.innerHTML = html;
+  document.getElementById('downloadBtn').style.display = 'block';
+}
+
+function downloadCSV() {
+  const table = document.querySelector("table");
+  const rows = table.querySelectorAll("tr");
+  const csv = [];
+
+  rows.forEach(row => {
+    const cols = row.querySelectorAll("td, th");
+    const line = Array.from(cols).map(col => '"' + col.textContent + '"').join(",");
+    csv.push(line);
+  });
+
+  const blob = new Blob([csv.join("\n")], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'output.csv';
+  a.click();
+}
+</script>
+</body>
+</html>
