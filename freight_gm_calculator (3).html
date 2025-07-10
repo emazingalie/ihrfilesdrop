@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Freight & GM Calculator</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    textarea, input { width: 100%; margin-top: 5px; margin-bottom: 15px; padding: 8px; }
+    button { padding: 10px 20px; margin-top: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #f2f2f2; }
+    .low-gm { background-color: #f8d7da; }
+  </style>
+</head>
+<body>
+  <h2>Freight & GM Calculator</h2>
+
+  <p><strong>PO Report Link:</strong> <a href="https://emazing.my.salesforce.com/00OPH000007CpfR" target="_blank">https://emazing.my.salesforce.com/00OPH000007CpfR</a></p>
+  <p><em>Note: Use <strong>Ctrl + Shift + V</strong> or "Paste as Plain Text" when pasting data.</em></p>
+
+  <label>Enter PO Numbers (comma-separated):</label>
+  <input type="text" id="poInput" placeholder="e.g. PO123, PO456">
+
+  <label>Enter Total Freight Cost:</label>
+  <input type="number" id="freightInput" step="0.01" placeholder="e.g. 250.00">
+
+  <label>Paste PO Data (TSV format - must include columns: PO Number, SKU, Quantity in Transit, Quantity Received, PO Status, Price, Product Title, COGS):</label>
+  <textarea id="poData" rows="12" placeholder="Department\tSupplier\tPO Number\t...\tSKU\t...\tQuantity in Transit\tQuantity Received\tPO Status\tPrice\tProduct Title\tCOGS"></textarea>
+
+  <button onclick="calculateFreightGM()">Calculate</button>
+
+  <div id="output"></div>
+
+  <script>
+    function parseTSV(tsv) {
+      return tsv.trim().split('\n').map(row => row.split('\t'));
+    }
+
+    function calculateFreightGM() {
+      const poNumbers = document.getElementById("poInput").value.split(',').map(po => po.trim());
+      const totalFreight = parseFloat(document.getElementById("freightInput").value);
+      const poRows = parseTSV(document.getElementById("poData").value);
+
+      const poHeader = poRows[0];
+
+      const poNumberIndex = poHeader.indexOf("PO Number");
+      const skuIndex = poHeader.indexOf("SKU");
+      const titleIndex = poHeader.indexOf("Product Title");
+      const qtyTransitIndex = poHeader.indexOf("Quantity in Transit");
+      const qtyReceivedIndex = poHeader.indexOf("Quantity Received");
+      const statusIndex = poHeader.indexOf("PO Status");
+      const priceIndex = poHeader.indexOf("Price");
+      const cogsIndex = poHeader.indexOf("COGS");
+
+      const filteredPOs = poRows.slice(1).filter(row => poNumbers.includes(row[poNumberIndex]?.trim()));
+
+      const totalQty = filteredPOs.reduce((sum, row) => {
+        const status = row[statusIndex]?.toLowerCase();
+        const qty = status === 'completed' ? parseFloat(row[qtyReceivedIndex]) : parseFloat(row[qtyTransitIndex]);
+        return sum + (isNaN(qty) ? 0 : qty);
+      }, 0);
+
+      const freightPerUnit = totalFreight / totalQty;
+
+      let output = `
+        <h3>Results</h3>
+        <table>
+          <tr>
+            <th>PO Number</th>
+            <th>SKU</th>
+            <th>Product Title</th>
+            <th>Quantity</th>
+            <th>Price</th>
+            <th>COGS</th>
+            <th>Freight/Unit</th>
+            <th>Total Unit Cost</th>
+            <th>Gross Margin %</th>
+          </tr>
+      `;
+
+      filteredPOs.forEach(row => {
+        const po = row[poNumberIndex];
+        const sku = row[skuIndex];
+        const title = row[titleIndex] || "";
+        const status = row[statusIndex]?.toLowerCase();
+        const qty = status === 'completed' ? parseFloat(row[qtyReceivedIndex]) : parseFloat(row[qtyTransitIndex]);
+        const price = parseFloat(row[priceIndex]);
+        const unitCost = parseFloat(row[cogsIndex]) || 0;
+        const totalUnitCost = unitCost + freightPerUnit;
+        const gm = ((price - totalUnitCost) / price) * 100;
+        const gmClass = gm < 60 ? 'low-gm' : '';
+
+        output += `
+          <tr>
+            <td>${po}</td>
+            <td>${sku}</td>
+            <td>${title}</td>
+            <td>${qty}</td>
+            <td>${price.toFixed(2)}</td>
+            <td>${unitCost.toFixed(2)}</td>
+            <td>${freightPerUnit.toFixed(2)}</td>
+            <td>${totalUnitCost.toFixed(2)}</td>
+            <td class="${gmClass}">${gm.toFixed(2)}%</td>
+          </tr>
+        `;
+      });
+
+      output += '</table>';
+      document.getElementById("output").innerHTML = output;
+    }
+  </script>
+</body>
+</html>
