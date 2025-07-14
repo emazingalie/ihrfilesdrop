@@ -28,8 +28,8 @@
   <label>Enter Total Packaging Cost:</label>
   <input type="number" id="packagingInput" step="0.01" placeholder="e.g. 50.00">
 
-  <label>Paste PO Data (TSV format - must include columns: PO Number, SKU, Quantity in Transit, Quantity Received, PO Status, Price, Product Title, COGS):</label>
-  <textarea id="poData" rows="12" placeholder="Department\tSupplier\tPO Number\t...\tSKU\t...\tQuantity in Transit\tQuantity Received\tPO Status\tPrice\tProduct Title\tCOGS"></textarea>
+  <label>Paste PO Data (TSV format - must include columns: PO Number, SKU, Quantity in Transit, Quantity Received, PO Status, True Price, True Special Price, Product Title, COGS):</label>
+  <textarea id="poData" rows="12" placeholder="Department\tSupplier\tPO Number\t...\tSKU\t...\tQuantity in Transit\tQuantity Received\tPO Status\tTrue Price\tTrue Special Price\tProduct Title\tCOGS"></textarea>
 
   <button onclick="calculateFreightGM()">Calculate</button>
 
@@ -54,7 +54,8 @@
       const qtyTransitIndex = poHeader.indexOf("Quantity in Transit");
       const qtyReceivedIndex = poHeader.indexOf("Quantity Received");
       const statusIndex = poHeader.indexOf("PO Status");
-      const priceIndex = poHeader.indexOf("Price");
+      const truePriceIndex = poHeader.indexOf("True Price");
+      const trueSpecialPriceIndex = poHeader.indexOf("True Special Price");
       const cogsIndex = poHeader.indexOf("COGS");
 
       const filteredPOs = poRows.slice(1).filter(row => poNumbers.includes(row[poNumberIndex]?.trim()));
@@ -91,7 +92,8 @@
             <th>SKU</th>
             <th>Product Title</th>
             <th>Quantity</th>
-            <th>Price</th>
+            <th>True Price</th>
+            <th>True Special Price</th>
             <th>COGS</th>
             <th>Freight+Packaging/Unit</th>
             <th>Total Unit Cost</th>
@@ -103,9 +105,13 @@
         const po = row[poNumberIndex];
         const sku = row[skuIndex];
         const title = row[titleIndex] || "";
-        const price = parseFloat(row[priceIndex]);
+        const truePrice = parseFloat(row[truePriceIndex]) || 0;
+        const trueSpecialPrice = parseFloat(row[trueSpecialPriceIndex]) || 0;
         const totalUnitCost = cogs + costPerUnit;
-        const gm = ((price - totalUnitCost) / price) * 100;
+        
+        // Use True Special Price if available, otherwise use True Price
+        const priceForGM = trueSpecialPrice > 0 ? trueSpecialPrice : truePrice;
+        const gm = priceForGM > 0 ? ((priceForGM - totalUnitCost) / priceForGM) * 100 : 0;
         const gmClass = gm < 70 ? 'low-gm' : '';
 
         output += `
@@ -114,7 +120,8 @@
             <td>${sku}</td>
             <td>${title}</td>
             <td>${qty}</td>
-            <td>${price.toFixed(2)}</td>
+            <td>${truePrice.toFixed(2)}</td>
+            <td>${trueSpecialPrice > 0 ? trueSpecialPrice.toFixed(2) : '-'}</td>
             <td>${cogs.toFixed(2)}</td>
             <td>${costPerUnit.toFixed(2)}</td>
             <td>${totalUnitCost.toFixed(2)}</td>
