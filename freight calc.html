@@ -92,6 +92,7 @@
             <th>SKU</th>
             <th>Product Title</th>
             <th>Quantity</th>
+            <th>Price Used</th>
             <th>True Price</th>
             <th>True Special Price</th>
             <th>COGS</th>
@@ -108,8 +109,7 @@
         const truePrice = parseFloat(row[truePriceIndex]) || 0;
         const trueSpecialPrice = parseFloat(row[trueSpecialPriceIndex]) || 0;
         const totalUnitCost = cogs + costPerUnit;
-        
-        // Use True Special Price if available, otherwise use True Price
+
         const priceForGM = trueSpecialPrice > 0 ? trueSpecialPrice : truePrice;
         const gm = priceForGM > 0 ? ((priceForGM - totalUnitCost) / priceForGM) * 100 : 0;
         const gmClass = gm < 70 ? 'low-gm' : '';
@@ -120,6 +120,7 @@
             <td>${sku}</td>
             <td>${title}</td>
             <td>${qty}</td>
+            <td>${priceForGM.toFixed(2)}</td>
             <td>${truePrice.toFixed(2)}</td>
             <td>${trueSpecialPrice > 0 ? trueSpecialPrice.toFixed(2) : '-'}</td>
             <td>${cogs.toFixed(2)}</td>
