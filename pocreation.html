@@ -21,7 +21,10 @@
 <body>
   <h2>Parent SKU → Child SKU Extractor</h2>
   
-  <label for="skuDump">Paste all data (with headers: B2C Product: SKU, Markdown, Product Cost, Shopify Product Type, Owner, Department, Title, Supplier):</label>
+  <label for="skuDump">
+    Paste all data (with headers: B2C Product: SKU, Markdown, Product Cost, Shopify Product Type, Owner, Department, Title, Supplier):
+    <br><small style="color: #666;">Data source: <a href="https://docs.google.com/spreadsheets/d/1PLvV02EoESEFAhshlOno__ZNElqL8GV33EbWiPiDZak/edit?usp=sharing" target="_blank" style="color: #2196F3;">Product Database Google Sheet</a></small>
+  </label>
   <textarea id="skuDump" rows="10" placeholder="Paste your data with headers from spreadsheet..."></textarea>
   
   <label for="parentSku">Enter Parent SKUs (separated by spaces):</label>
