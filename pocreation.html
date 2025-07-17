@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Child SKU Finder</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    textarea, input { width: 100%; margin-top: 10px; padding: 8px; }
+    .output { margin-top: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; font-weight: bold; }
+    .editable { border: none; width: 100%; padding: 4px; box-sizing: border-box; }
+    input.editable { height: 24px; font-size: 14px; }
+    select.editable { height: 32px; font-size: 14px; }
+    td { vertical-align: middle; height: 40px; }
+    .download-btn { margin-top: 10px; background-color: #4CAF50; color: white; padding: 10px 20px; border: none; cursor: pointer; }
+    .download-btn:hover { background-color: #45a049; }
+  </style>
+</head>
+<body>
+  <h2>Parent SKU → Child SKU Extractor</h2>
+  
+  <label for="skuDump">Paste all data (with headers: B2C Product: SKU, Markdown, Product Cost, Shopify Product Type, Owner, Department, Title, Supplier):</label>
+  <textarea id="skuDump" rows="10" placeholder="Paste your data with headers from spreadsheet..."></textarea>
+  
+  <label for="parentSku">Enter Parent SKUs (separated by spaces):</label>
+  <input type="text" id="parentSku" placeholder="e.g. ABCD1234 EFGH5678 IJKL9012">
+  <button onclick="filterSKUs()">Find Child SKUs</button>
+  <div class="output" id="results"></div>
+  
+  <script>
+    const vendors = [
+      "Excision", "Pastease", "OhYes", "Cherry Mellow, Inc.", "DTLA", "Decky", "Jujube", "iHeartRaves", "Action Designz", "Leg Avenue", "Andrew - Agent", "Kayso", "YRU", "Body Language", "SanFeng", "Damascus Apparel", "Kimtex", "J. Valentine", "Kryolan", "Lunautics", "Daft Boy", "PAX Trading", "Top Focus Technology Co., LTD", "Try Now", "iGlow", "Neva Nude", "CDH SEVEN INC. DBA 7 MANGO 7", "Sasswear", "Hot & Delicious Black Bead", "Banjul", "LuvLiz", "Forplay", "Vibrato", "Accessories House", "Western Fashion", "Dippin Daisies", "One By One Apparel", "Fame Accessories", "BrittsBlossoms", "Rave Kulture Kreations", "One Stop Rave", "Lucent Product Inc.", "MY BOO", "Shenzhen Mingxuan Art and Craft Co., Ltd.", "General Union", "Roma", "Music Legs", "Raveware", "Dan-Pak", "BoomBoom", "Toros Accessories Co.", "Spiral Industries", "Demonia", "Ana Accessories", "I Joia", "Zhengzhou Damulin Industry and Trade Co., Ltd.", "SK CLOTHING INC", "Fun World", "Nomad Kandi", "Yiwu Siyuan Imp&Exp Co., Ltd", "Cape Robbin", "Berness", "JY Designs and Creations", "Rock & Rose", "Girly", "Party Queen", "Rolita Couture", "Apple Accessories", "Andrea Bijoux", "SoJourner", "Gloworks", "Smiffys", "Koi Footwear", "FAIRFAX EXPORTS PVT. LTD.", "Fydelity", "KBW Corp", "Doughnut Official", "Shadzy", "Toros Accessories Co", "J.P. Original Corp", "Ellie Shoes", "Momesh Clothing", "Rave Neon", "Forever Link", "Yiwu Yilan Clothing", "Yiwu Loujiang Import & Export Co., Ltd.", "HND Accessories", "EastNWest Label", "Yuyao Yanzhen Metal Technology Co.,Ltd", "Mata Shoes", "Number One International", "AHONGYOUXUAN TRADING XIAMEN LTD", "Xintian Feather", "Shaoxing Tianyun Industrial Co., Ltd.", "University Customs", "DongGuan LovelyBabies Apparel Co., Ltd.", "Guangzhou Yimei Printing Co., Ltd.", "Laura Shannon", "Dissonance", "Liya Kitten", "Guangzhou Knicks Clothing Co., Ltd", "Yiwu Polly Jewelry Company Limited", "Dongguan Aogu Sportswear Co., Ltd.", "American Bazi", "New Pink", "NightCap", "Charming Bunny", "Top Guy Footwear", "MUY MUY", "Balboa", "Iris", "Pretty Damage", "Storia", "Dash Forward", "Liquid Blue", "Bleecker & Mercer", "ODD SOX", "Guangzhou Healong Sportswear Co., Ltd.", "Dongguan King Young Apparel Co., Ltd.", "Yiwu Partyland Costumes Co., Ltd.", "Kandi Bar", "Guangzhou Shine-E Electronic Tech Co.,Ltd", "Lyte Couture", "The Headspace", "Mapale", "Lemonade", "Kiteng Inc", "Sunday Brunch", "G Mini", "Love Poem", "Tic Toc", "Hot & Delicious Pink Bead", "D&J Fashion", "Winki", "YiFu Fashion", "Easypromos Shirts Manufacturer", "Fantasy Lingerie", "Copper Rivet", "Rebel Minds", "Genuine Brand", "Fortune Dynamic", "American Stitch, LLC", "Yiwu Luoci Clothing Co., Ltd", "Yang Yang Shoes", "Merch Sourcing Limited", "CDH SEVEN INC. DBA 7 MANGO 8", "Taizhou Golden Beach Garments Co., Ltd.", "KritterKlips", "JIANGSU HUAYI KNITTING CO.,LTD", "Guangzhou Elegant Apparel Warehouse Co., Ltd", "ClutchLoop", "Guangzhou Ouyuhan Clothing Co., Ltd.", "Comeco, Inc.", "Himalaya Handmade LLC", "Bear Dance", "ANWND", "Organic Generation", "Knobs", "Culture Shop", "Hebei Xinyue Paper Plastic Packaging Co., Ltd", "KTOO", "Shiva Shakti Garment Pvt. Ltd", "UNITED FASHIONS KNITTING INDUSTRIES PVT LTD", "Badinka", "Freedeo", "HAPPYBELLIES", "Shenzhen Mingxuan Art and Craft Co.,", "Shenzhen Octopus Glasses Co., Ltd", "Rage Nation", "Nanchang Yunyi Clothing Co", "Foshan Jianwei Sportswear Clothing Co", "Baoding Yukaihe Clothing Import & Export Co.", "Guangzhou Yingjiaqi Clothing Co.", "Yiwu Wenshuo Import And Export Co.", "Guangzhou Sychuan Clothing Trade Co.", "Jiangxi Love Nature Outdoor Products Co.", "Shenzhen Mingxuan Art and Craft Co., Ltd", "Xiamen Jiubaju Network Technology Co.", "Estile", "Peeqi Boutique (Dongguan) Co", "Lakhays", "Beijing Haihua Cheng Xin Import & Export Co.", "Himalayan Handmades International", "Indigo Huang", "Royal Handicraft Inc.", "Rising Inc.", "ShinYing Couture", "Shijiazhuang Followmee Trade Co., Ltd.", "Zhejiang Pretty Clothing Co., Ltd.", "Xiamen Ahong Youxuan Trading Co., Ltd.", "Shantou Chenghai District Yimei Garment Factory", "Shenzhen Nafanli E-Commerce Co., Ltd.", "Shyseams", "Richa International", "Espiral", "Rave Aid", "Stash It Ware"
+    ];
+
+    function parseCSVData(csvText) {
+      const lines = csvText.split('\n').map(line => line.trim()).filter(line => line);
+      if (lines.length === 0) return { skuData: {}, allSkus: [] };
+      
+      // Parse header row to find column indices
+      const headers = lines[0].split('\t').length > 1 ? 
+        lines[0].split('\t') : lines[0].split(',');
+      
+      const skuIndex = headers.findIndex(h => h.toLowerCase().includes('sku'));
+      const supplierIndex = headers.findIndex(h => h.toLowerCase().includes('supplier'));
+      
+      console.log('Headers found:', headers);
+      console.log('SKU column index:', skuIndex, 'Supplier column index:', supplierIndex);
+      
+      const skuData = {};
+      const allSkus = [];
+      
+      // Parse data rows
+      for (let i = 1; i < lines.length; i++) {
+        const columns = lines[i].split('\t').length > 1 ? 
+          lines[i].split('\t') : lines[i].split(',');
+        
+        if (columns.length > skuIndex && skuIndex >= 0) {
+          const sku = columns[skuIndex].replace(/"/g, '').trim();
+          const supplier = supplierIndex >= 0 && columns[supplierIndex] ? 
+            columns[supplierIndex].replace(/"/g, '').trim() : '';
+          
+          if (sku && sku !== '') {
+            allSkus.push(sku);
+            skuData[sku] = {
+              supplier: supplier,
+              rowData: columns
+            };
+          }
+        }
+      }
+      
+      console.log('Parsed SKU data sample:', Object.keys(skuData).slice(0, 3));
+      return { skuData, allSkus };
+    }
+
+    function filterSKUs() {
+      const rawData = document.getElementById("skuDump").value;
+      const parentInput = document.getElementById("parentSku").value.trim();
+      const parentSkus = parentInput.split(/\s+/).filter(Boolean);
+      const outputDiv = document.getElementById("results");
+      
+      if (parentSkus.length === 0) {
+        outputDiv.innerHTML = `<p>Please enter at least one parent SKU.</p>`;
+        return;
+      }
+      
+      // Parse the CSV/TSV data
+      const { skuData, allSkus } = parseCSVData(rawData);
+      
+      if (allSkus.length === 0) {
+        outputDiv.innerHTML = `<p>No SKU data found. Please paste data with proper headers.</p>`;
+        return;
+      }
+      
+      let allMatchingSkus = [];
+      let resultSections = [];
+      
+      parentSkus.forEach(parent => {
+        const matchingSkus = allSkus.filter(sku => sku.startsWith(parent));
+        allMatchingSkus = allMatchingSkus.concat(matchingSkus.map(sku => ({
+          sku: sku,
+          supplier: skuData[sku].supplier
+        })));
+        
+        if (matchingSkus.length > 0) {
+          resultSections.push({
+            parent: parent,
+            skus: matchingSkus,
+            count: matchingSkus.length
+          });
+        }
+      });
+      
+      if (allMatchingSkus.length === 0) {
+        outputDiv.innerHTML = `<p>No child SKUs found for any of the parent SKUs: <strong>${parentSkus.join(', ')}</strong></p>`;
+      } else {
+        let currentIndex = 0;
+        const allTableRows = allMatchingSkus.map((item) => {
+          const supplierOptions = vendors.map(vendor => 
+            `<option value="${vendor}" ${vendor === item.supplier ? 'selected' : ''}>${vendor}</option>`
+          ).join('');
+          
+          const row = `<tr>
+            <td>${item.sku}</td>
+            <td><input type="number" class="editable" id="units_${currentIndex}" placeholder="0"></td>
+            <td>
+              <select class="editable" id="vendor_${currentIndex}">
+                <option value="">Select vendor...</option>
+                ${supplierOptions}
+              </select>
+            </td>
+            <td><input type="date" class="editable" id="eta_${currentIndex}"></td>
+          </tr>`;
+          currentIndex++;
+          return row;
+        }).join('');
+        
+        const summaryText = resultSections.map(section => 
+          `<strong>${section.count}</strong> SKUs for parent <strong>${section.parent}</strong>`
+        ).join(', ');
+        
+        outputDiv.innerHTML = `
+          <p>Found ${summaryText} (Total: <strong>${allMatchingSkus.length}</strong> child SKUs)</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Child SKU</th>
+                <th>Units to Order</th>
+                <th>Vendor</th>
+                <th>ETA</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allTableRows}
+            </tbody>
+          </table>
+          <button class="download-btn" onclick="downloadCSV()">Download as CSV</button>
+        `;
+      }
+    }
+
+    function downloadCSV() {
+      const table = document.querySelector('#results table');
+      if (!table) return;
+      
+      const rows = table.querySelectorAll('tr');
+      const csvContent = [];
+      
+      // Add header row
+      const headerCells = rows[0].querySelectorAll('th');
+      const headerRow = Array.from(headerCells).map(cell => cell.textContent);
+      csvContent.push(headerRow.join(','));
+      
+      // Add data rows
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const cells = row.querySelectorAll('td');
+        const rowData = [];
+        
+        cells.forEach((cell, index) => {
+          if (index === 0) {
+            // First column is just text (SKU)
+            rowData.push('"' + cell.textContent + '"');
+          } else {
+            // Other columns have input fields or select elements
+            const input = cell.querySelector('input');
+            const select = cell.querySelector('select');
+            const value = input ? input.value : (select ? select.value : '');
+            rowData.push('"' + value + '"');
+          }
+        });
+        
+        csvContent.push(rowData.join(','));
+      }
+      
+      // Create and download the file
+      const csvString = csvContent.join('\n');
+      const blob = new Blob([csvString], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'child_skus_order_list.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
