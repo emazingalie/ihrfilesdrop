@@ -11,6 +11,24 @@
     th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
     th { background-color: #f2f2f2; }
     .low-gm { background-color: #f8d7da; }
+    .editable { 
+      background-color: #fff3cd; 
+      cursor: text;
+      min-width: 60px;
+    }
+    .editable:hover { 
+      background-color: #ffeaa7; 
+    }
+    .editable:focus { 
+      background-color: #ffffff; 
+      outline: 2px solid #007bff;
+    }
+    .summary-section {
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 20px 0;
+    }
   </style>
 </head>
 <body>
@@ -36,14 +54,85 @@
   <div id="output"></div>
 
   <script>
+    let processedData = [];
+    let totalFreight = 0;
+    let totalPackaging = 0;
+
     function parseTSV(tsv) {
       return tsv.trim().split('\n').map(row => row.split('\t'));
     }
 
+    function updateSummary() {
+      let totalQty = 0;
+      let totalInvoiceCost = 0;
+
+      processedData.forEach(item => {
+        const qty = parseFloat(item.qty) || 0;
+        const cogs = parseFloat(item.cogs) || 0;
+        totalQty += qty;
+        totalInvoiceCost += qty * cogs;
+      });
+
+      const costPerUnit = totalQty > 0 ? (totalFreight + totalPackaging) / totalQty : 0;
+      const totalWithFreightPackaging = totalInvoiceCost + totalFreight + totalPackaging;
+
+      document.getElementById('totalInvoiceCost').textContent = `$${totalInvoiceCost.toFixed(2)}`;
+      document.getElementById('totalFreightPackaging').textContent = `$${(totalFreight + totalPackaging).toFixed(2)}`;
+      document.getElementById('totalFreightPackagingPerUnit').textContent = `$${costPerUnit.toFixed(2)}`;
+      document.getElementById('totalCost').textContent = `$${totalWithFreightPackaging.toFixed(2)}`;
+
+      // Update each row's calculations
+      processedData.forEach((item, index) => {
+        const qty = parseFloat(item.qty) || 0;
+        const cogs = parseFloat(item.cogs) || 0;
+        const totalUnitCost = cogs + costPerUnit;
+        
+        const priceForGM = item.trueSpecialPrice > 0 ? item.trueSpecialPrice : item.truePrice;
+        const gm = priceForGM > 0 ? ((priceForGM - totalUnitCost) / priceForGM) * 100 : 0;
+        
+        // Update the table cells
+        const row = document.querySelector(`tr[data-index="${index}"]`);
+        if (row) {
+          row.querySelector('.freight-packaging-unit').textContent = costPerUnit.toFixed(2);
+          row.querySelector('.total-unit-cost').textContent = totalUnitCost.toFixed(2);
+          
+          const gmCell = row.querySelector('.gm-cell');
+          gmCell.textContent = `${gm.toFixed(2)}%`;
+          gmCell.className = gm < 70 ? 'gm-cell low-gm' : 'gm-cell';
+        }
+      });
+    }
+
+    function handleEdit(element, index, field) {
+      const newValue = parseFloat(element.textContent) || 0;
+      processedData[index][field] = newValue;
+      updateSummary();
+    }
+
+    function makeEditable(element, index, field) {
+      element.addEventListener('input', function() {
+        // Only allow numbers and decimal point
+        this.textContent = this.textContent.replace(/[^0-9.]/g, '');
+        handleEdit(this, index, field);
+      });
+      
+      element.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.blur();
+        }
+      });
+      
+      element.addEventListener('blur', function() {
+        const value = parseFloat(this.textContent) || 0;
+        this.textContent = value.toFixed(2);
+      });
+    }
+
     function calculateFreightGM() {
       const poNumbers = document.getElementById("poInput").value.split(',').map(po => po.trim());
-      const totalFreight = parseFloat(document.getElementById("freightInput").value) || 0;
-      const totalPackaging = parseFloat(document.getElementById("packagingInput").value) || 0;
+      totalFreight = parseFloat(document.getElementById("freightInput").value) || 0;
+      totalPackaging = parseFloat(document.getElementById("packagingInput").value) || 0;
       const poRows = parseTSV(document.getElementById("poData").value);
 
       const poHeader = poRows[0];
@@ -60,31 +149,35 @@
 
       const filteredPOs = poRows.slice(1).filter(row => poNumbers.includes(row[poNumberIndex]?.trim()));
 
-      let totalQty = 0;
-      let totalInvoiceCost = 0;
-
-      const processedRows = filteredPOs.map(row => {
+      processedData = filteredPOs.map(row => {
         const status = row[statusIndex]?.toLowerCase();
         const qty = status === 'completed' ? parseFloat(row[qtyReceivedIndex]) : parseFloat(row[qtyTransitIndex]);
         const cogs = parseFloat(row[cogsIndex]) || 0;
+        const truePrice = parseFloat(row[truePriceIndex]) || 0;
+        const trueSpecialPrice = parseFloat(row[trueSpecialPriceIndex]) || 0;
 
-        if (!isNaN(qty)) {
-          totalQty += qty;
-          totalInvoiceCost += qty * cogs;
-        }
-
-        return { row, qty, cogs };
+        return {
+          po: row[poNumberIndex],
+          sku: row[skuIndex],
+          title: row[titleIndex] || "",
+          qty: qty || 0,
+          cogs: cogs,
+          truePrice: truePrice,
+          trueSpecialPrice: trueSpecialPrice,
+          priceForGM: trueSpecialPrice > 0 ? trueSpecialPrice : truePrice
+        };
       });
-
-      const costPerUnit = (totalFreight + totalPackaging) / totalQty;
-      const totalWithFreightPackaging = totalInvoiceCost + totalFreight + totalPackaging;
 
       let output = `
         <h3>Results</h3>
-        <p><strong>Total Invoice Cost (COGS x Quantity):</strong> $${totalInvoiceCost.toFixed(2)}</p>
-        <p><strong>Total Freight + Packaging Cost:</strong> $${(totalFreight + totalPackaging).toFixed(2)}</p>
-        <p><strong>Total Freight + Packaging per Unit:</strong> $${costPerUnit.toFixed(2)}</p>
-        <p><strong>Total Cost (Invoice + Freight + Packaging):</strong> $${totalWithFreightPackaging.toFixed(2)}</p>
+        <div class="summary-section">
+          <p><strong>Total Invoice Cost (COGS × Quantity):</strong> <span id="totalInvoiceCost">$0.00</span></p>
+          <p><strong>Total Freight + Packaging Cost:</strong> <span id="totalFreightPackaging">$0.00</span></p>
+          <p><strong>Total Freight + Packaging per Unit:</strong> <span id="totalFreightPackagingPerUnit">$0.00</span></p>
+          <p><strong>Total Cost (Invoice + Freight + Packaging):</strong> <span id="totalCost">$0.00</span></p>
+        </div>
+
+        <p><em>Note: COGS and Quantity columns are editable. Click on any cell in these columns to modify values. Calculations will update automatically.</em></p>
 
         <table>
           <tr>
@@ -102,38 +195,55 @@
           </tr>
       `;
 
-      processedRows.forEach(({ row, qty, cogs }) => {
-        const po = row[poNumberIndex];
-        const sku = row[skuIndex];
-        const title = row[titleIndex] || "";
-        const truePrice = parseFloat(row[truePriceIndex]) || 0;
-        const trueSpecialPrice = parseFloat(row[trueSpecialPriceIndex]) || 0;
-        const totalUnitCost = cogs + costPerUnit;
-
-        const priceForGM = trueSpecialPrice > 0 ? trueSpecialPrice : truePrice;
-        const gm = priceForGM > 0 ? ((priceForGM - totalUnitCost) / priceForGM) * 100 : 0;
-        const gmClass = gm < 70 ? 'low-gm' : '';
-
+      processedData.forEach((item, index) => {
         output += `
-          <tr>
-            <td>${po}</td>
-            <td>${sku}</td>
-            <td>${title}</td>
-            <td>${qty}</td>
-            <td>${priceForGM.toFixed(2)}</td>
-            <td>${truePrice.toFixed(2)}</td>
-            <td>${trueSpecialPrice > 0 ? trueSpecialPrice.toFixed(2) : '-'}</td>
-            <td>${cogs.toFixed(2)}</td>
-            <td>${costPerUnit.toFixed(2)}</td>
-            <td>${totalUnitCost.toFixed(2)}</td>
-            <td class="${gmClass}">${gm.toFixed(2)}%</td>
+          <tr data-index="${index}">
+            <td>${item.po}</td>
+            <td>${item.sku}</td>
+            <td>${item.title}</td>
+            <td class="editable qty-cell" contenteditable="true">${item.qty}</td>
+            <td>${item.priceForGM.toFixed(2)}</td>
+            <td>${item.truePrice.toFixed(2)}</td>
+            <td>${item.trueSpecialPrice > 0 ? item.trueSpecialPrice.toFixed(2) : '-'}</td>
+            <td class="editable cogs-cell" contenteditable="true">${item.cogs.toFixed(2)}</td>
+            <td class="freight-packaging-unit">0.00</td>
+            <td class="total-unit-cost">0.00</td>
+            <td class="gm-cell">0.00%</td>
           </tr>
         `;
       });
 
       output += '</table>';
       document.getElementById("output").innerHTML = output;
+
+      // Make cells editable and add event listeners
+      processedData.forEach((item, index) => {
+        const qtyCell = document.querySelector(`tr[data-index="${index}"] .qty-cell`);
+        const cogsCell = document.querySelector(`tr[data-index="${index}"] .cogs-cell`);
+        
+        makeEditable(qtyCell, index, 'qty');
+        makeEditable(cogsCell, index, 'cogs');
+      });
+
+      // Initial calculation
+      updateSummary();
     }
+
+    // Add event listeners for freight and packaging inputs to trigger recalculation
+    document.getElementById('freightInput').addEventListener('input', function() {
+      if (processedData.length > 0) {
+        totalFreight = parseFloat(this.value) || 0;
+        updateSummary();
+      }
+    });
+
+    document.getElementById('packagingInput').addEventListener('input', function() {
+      if (processedData.length > 0) {
+        totalPackaging = parseFloat(this.value) || 0;
+        updateSummary();
+      }
+    });
   </script>
 </body>
 </html>
+
