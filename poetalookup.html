@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PO ETA Lookup</title>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      padding: 20px; 
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    textarea, input { 
+      width: 100%; 
+      margin-top: 10px; 
+      padding: 8px; 
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .output { 
+      margin-top: 20px; 
+    }
+    table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      margin-top: 10px; 
+    }
+    th, td { 
+      border: 1px solid #ddd; 
+      padding: 12px; 
+      text-align: left; 
+    }
+    th { 
+      background-color: #f2f2f2; 
+      font-weight: bold; 
+    }
+    .process-btn, .download-btn { 
+      margin-top: 10px; 
+      margin-right: 10px;
+      background-color: #4CAF50; 
+      color: white; 
+      padding: 10px 20px; 
+      border: none; 
+      cursor: pointer; 
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .process-btn:hover, .download-btn:hover { 
+      background-color: #45a049; 
+    }
+    .lookup-btn {
+      background-color: #2196F3;
+    }
+    .lookup-btn:hover {
+      background-color: #1976D2;
+    }
+    .status {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .status.success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .status.info {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    .found { background-color: #d4edda; }
+    .not-found { background-color: #f8d7da; }
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background-color: #fafafa;
+    }
+    .section h3 {
+      margin-top: 0;
+      color: #333;
+    }
+    label {
+      font-weight: bold;
+      color: #555;
+    }
+    .link {
+      color: #2196F3;
+      text-decoration: none;
+    }
+    .link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>PO ETA Lookup Tool</h2>
+    
+    <div class="section">
+      <h3>Step 1: Load PO Data</h3>
+      <label for="dataInput">
+        Paste all PO data (with headers: Purchase Order: External Id, Site Inventory, Department, Purchase Order: Supplier, PO Number, Purchase Order: In Warehouse CXL Date, PO Status):
+        <br><small style="color: #666;">Data source: <a href="https://docs.google.com/spreadsheets/d/1PLvV02EoESEFAhshlOno__ZNElqL8GV33EbWiPiDZak/edit?gid=743049758#gid=743049758" target="_blank" class="link">PO Database Google Sheet</a></small>
+      </label>
+      <textarea id="dataInput" rows="10" placeholder="Purchase Order: External Id,Site Inventory,Department,Purchase Order: Supplier,PO Number,Purchase Order: In Warehouse CXL Date,PO Status
+PO001,Site A,IT,Supplier X,PO001,2024-12-15,Active
+PO002,Site B,HR,Supplier Y,PO002,2024-12-20,Pending"></textarea>
+      <button class="process-btn" onclick="processData()">Process PO Data</button>
+      <div id="dataStatus"></div>
+    </div>
+
+    <div class="section">
+      <h3>Step 2: Lookup PO ETAs</h3>
+      <label for="poInput">Enter PO numbers to lookup (separated by spaces or new lines):</label>
+      <input type="text" id="poInput" placeholder="e.g. PO001 PO002 PO003 (text like 'RO' or 'NEED DATA' will be ignored)">
+      <button class="process-btn lookup-btn" onclick="lookupETAs()">Find ETAs</button>
+      <div id="lookupStatus"></div>
+    </div>
+
+    <div class="output" id="results"></div>
+  </div>
+  
+  <script>
+    let poDatabase = {};
+    let totalRecords = 0;
+
+    function parseData(csvText) {
+      const lines = csvText.split('\n').map(line => line.trim()).filter(line => line);
+      if (lines.length === 0) return { poData: {}, recordCount: 0 };
+      
+      // Parse header row to find column indices
+      const headers = lines[0].split('\t').length > 1 ? 
+        lines[0].split('\t') : lines[0].split(',');
+      
+      const externalIdIndex = headers.findIndex(h => 
+        h.toLowerCase().includes('external id') || 
+        h.toLowerCase().includes('purchase order: external id')
+      );
+      const etaIndex = headers.findIndex(h => 
+        h.toLowerCase().includes('warehouse') && h.toLowerCase().includes('date') ||
+        h.toLowerCase().includes('eta') ||
+        h.toLowerCase().includes('in warehouse cxl date')
+      );
+      
+      console.log('Headers found:', headers);
+      console.log('External ID column index:', externalIdIndex, 'ETA column index:', etaIndex);
+      
+      const poData = {};
+      let recordCount = 0;
+      
+      // Parse data rows
+      for (let i = 1; i < lines.length; i++) {
+        const columns = lines[i].split('\t').length > 1 ? 
+          lines[i].split('\t') : lines[i].split(',');
+        
+        if (columns.length > Math.max(externalIdIndex, etaIndex) && externalIdIndex >= 0 && etaIndex >= 0) {
+          const poNumber = columns[externalIdIndex].replace(/"/g, '').trim();
+          const eta = columns[etaIndex].replace(/"/g, '').trim();
+          
+          if (poNumber && poNumber !== '' && eta && eta !== '') {
+            poData[poNumber] = eta;
+            recordCount++;
+          }
+        }
+      }
+      
+      console.log('Parsed PO data sample:', Object.keys(poData).slice(0, 3));
+      return { poData, recordCount };
+    }
+
+    function processData() {
+      const rawData = document.getElementById("dataInput").value;
+      const statusDiv = document.getElementById("dataStatus");
+      
+      if (!rawData.trim()) {
+        showStatus(statusDiv, 'Please paste your PO data first.', 'error');
+        return;
+      }
+      
+      try {
+        const { poData, recordCount } = parseData(rawData);
+        
+        if (recordCount === 0) {
+          showStatus(statusDiv, 'No valid PO data found. Please check that your data includes the required columns: "Purchase Order: External Id" and "Purchase Order: In Warehouse CXL Date".', 'error');
+          return;
+        }
+        
+        poDatabase = poData;
+        totalRecords = recordCount;
+        
+        showStatus(statusDiv, `Successfully processed ${recordCount} PO records with ETA information.`, 'success');
+        
+      } catch (error) {
+        showStatus(statusDiv, `Error processing data: ${error.message}`, 'error');
+        console.error('Processing error:', error);
+      }
+    }
+
+    function lookupETAs() {
+      const poInput = document.getElementById("poInput").value.trim();
+      const statusDiv = document.getElementById("lookupStatus");
+      const outputDiv = document.getElementById("results");
+      
+      if (!poInput) {
+        showStatus(statusDiv, 'Please enter at least one PO number.', 'error');
+        return;
+      }
+      
+      if (Object.keys(poDatabase).length === 0) {
+        showStatus(statusDiv, 'Please process your PO data first.', 'error');
+        return;
+      }
+      
+      // Parse PO numbers from input (spaces or newlines) and filter out non-PO text
+      const ignoredTexts = ['RO', 'NEED DATA', 'NEEDED', 'URGENT', 'ASAP', 'TBD', 'N/A', 'NA', 'NULL', 'NONE'];
+      const allTokens = poInput.split(/[\s\n,]+/).filter(token => token.trim().length > 0);
+      
+      const poNumbers = allTokens.filter(token => {
+        const cleanToken = token.trim().toUpperCase();
+        // Skip if it's in the ignored texts list
+        if (ignoredTexts.includes(cleanToken)) {
+          return false;
+        }
+        // Skip if it's purely text without numbers (likely not a PO)
+        if (!/\d/.test(cleanToken)) {
+          return false;
+        }
+        return true;
+      });
+      
+      if (poNumbers.length === 0) {
+        showStatus(statusDiv, 'No valid PO numbers found in input.', 'error');
+        return;
+      }
+      
+      let foundCount = 0;
+      let notFoundCount = 0;
+      let tableRows = [];
+      
+      poNumbers.forEach(poNumber => {
+        const trimmedPO = poNumber.trim();
+        if (poDatabase[trimmedPO]) {
+          const eta = poDatabase[trimmedPO];
+          tableRows.push(`
+            <tr class="found">
+              <td><strong>${trimmedPO}</strong></td>
+              <td>${eta}</td>
+              <td>✓ Found</td>
+            </tr>
+          `);
+          foundCount++;
+        } else {
+          tableRows.push(`
+            <tr class="not-found">
+              <td><strong>${trimmedPO}</strong></td>
+              <td>0</td>
+              <td>✗ Not Found</td>
+            </tr>
+          `);
+          notFoundCount++;
+        }
+      });
+      
+      const summaryText = `Found ETAs for <strong>${foundCount}</strong> of <strong>${poNumbers.length}</strong> PO numbers`;
+      
+      outputDiv.innerHTML = `
+        <h3>ETA Lookup Results</h3>
+        <p>${summaryText} (Total database: <strong>${totalRecords}</strong> records)</p>
+        <table>
+          <thead>
+            <tr>
+              <th>PO Number</th>
+              <th>ETA (In Warehouse CXL Date)</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows.join('')}
+          </tbody>
+        </table>
+        <button class="download-btn" onclick="downloadCSV()">Download Results as CSV</button>
+      `;
+      
+      const statusMessage = foundCount === poNumbers.length ? 
+        `All ${foundCount} PO numbers found successfully!` :
+        `Found ${foundCount} PO numbers, ${notFoundCount} not found in database.`;
+      
+      showStatus(statusDiv, statusMessage, foundCount === poNumbers.length ? 'success' : 'info');
+    }
+
+    function showStatus(element, message, type) {
+      element.innerHTML = `<div class="status ${type}">${message}</div>`;
+    }
+
+    function downloadCSV() {
+      const table = document.querySelector('#results table');
+      if (!table) {
+        alert('No results table found. Please perform a lookup first.');
+        return;
+      }
+      
+      const rows = table.querySelectorAll('tr');
+      if (rows.length < 2) {
+        alert('No data rows found to export.');
+        return;
+      }
+      
+      const csvContent = [];
+      
+      // Add header row
+      const headerCells = rows[0].querySelectorAll('th');
+      const headerRow = Array.from(headerCells).map(cell => cell.textContent.trim());
+      csvContent.push(headerRow.join(','));
+      
+      // Add data rows
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const cells = row.querySelectorAll('td');
+        const rowData = Array.from(cells).map(cell => {
+          // Clean up the text content and escape quotes
+          const text = cell.textContent.trim().replace(/"/g, '""');
+          return `"${text}"`;
+        });
+        csvContent.push(rowData.join(','));
+      }
+      
+      // Create and download the file
+      const csvString = csvContent.join('\n');
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `po_eta_lookup_results_${new Date().toISOString().split('T')[0]}.csv`;
+      link.style.display = 'none';
+      
+      // Add to DOM, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up the URL object
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 100);
+      
+      console.log('CSV download initiated for', rows.length - 1, 'rows');
+    }
+
+    // Load sample data on page load
+    window.addEventListener('load', function() {
+      const sampleData = `Purchase Order: External Id,Site Inventory,Department,Purchase Order: Supplier,PO Number,Purchase Order: In Warehouse CXL Date,PO Status
+PO001,Site A,IT,Supplier X,PO001,2024-12-15,Active
+PO002,Site B,HR,Supplier Y,PO002,2024-12-20,Pending
+PO003,Site C,Finance,Supplier Z,PO003,2024-12-25,Active
+PO004,Site A,IT,Supplier X,PO004,2025-01-10,Processing
+PO005,Site D,Marketing,Supplier W,PO005,2025-01-15,Active`;
+      
+      document.getElementById('dataInput').value = sampleData;
+    });
+  </script>
+</body>
+</html>
