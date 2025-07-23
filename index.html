@@ -1,181 +1,256 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Product Input Tool with Sidebar on Left</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IHR Tools</title>
     <style>
-        body { font-family: Arial, sans-serif; display: flex; padding: 20px; gap: 30px; flex-direction: row; }
-        textarea { width: 100%; margin: 10px 0; }
-        #main { flex: 1; }
-        #dropZone {
-            width: 100%; height: 150px; border: 2px dashed #aaa;
-            display: flex; align-items: center; justify-content: center;
-            margin-bottom: 10px; background: #f9f9f9; color: #555;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        #preview {
-            display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            color: #2c3e50;
         }
-        #preview img {
-            max-width: 100px;
-            max-height: 100px;
-            border: 1px solid #ccc;
-            object-fit: cover;
+
+        .header {
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
-        button { padding: 10px 15px; margin-top: 10px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; font-size: 12px; }
-        th, td { border: 1px solid #aaa; padding: 6px; text-align: left; }
-        .red-text { color: red; font-weight: bold; }
-        #sidebar {
-            width: 280px;
-            background: #f3f3f3;
-            padding: 15px;
-            border: 1px solid #ccc;
+
+        .nav {
+            display: flex;
+            max-width: 1400px;
+            margin: 0 auto;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .nav::-webkit-scrollbar {
+            display: none;
+        }
+
+        .nav-item {
+            flex-shrink: 0;
+            padding: 16px 20px;
+            border: none;
+            background: none;
+            color: #6c757d;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            white-space: nowrap;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-item:hover {
+            color: #495057;
+            background: #f8f9fa;
+        }
+
+        .nav-item.active {
+            color: #007bff;
+            border-bottom-color: #007bff;
+            background: #f8f9fa;
+        }
+
+        .content {
+            height: calc(100vh - 57px);
+            position: relative;
+        }
+
+        .tab-pane {
+            display: none;
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #fff;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #6c757d;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e9ecef;
+            border-top: 2px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .brand {
+            padding: 16px 20px;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 16px;
+            border-right: 1px solid #e9ecef;
+            flex-shrink: 0;
+        }
+
+        @media (max-width: 768px) {
+            .brand {
+                display: none;
+            }
+            
+            .nav-item {
+                padding: 14px 16px;
+                font-size: 13px;
+            }
+        }
+
+        .error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #dc3545;
             font-size: 14px;
         }
-        #sidebar ol { padding-left: 20px; }
-        .warning { color: red; margin-top: 10px; }
     </style>
 </head>
 <body>
-<div id="sidebar">
-    <h3>🧾 Each Batch Needs 11 Lines:</h3>
-    <ol>
-        <li>Vendor</li>
-        <li>Description</li>
-        <li>MPN/Style No.</li>
-        <li>Owner</li>
-        <li>Cost ($)</li>
-        <li>Retail ($)</li>
-        <li>Size Range</li>
-        <li>Collection</li>
-        <li>ETA (mm/dd/yyyy)</li>
-        <li>MOQ</li>
-        <li>(Image = use drop zone)</li>
-    </ol>
-    <p><strong>Tips:</strong></p>
-    <ul>
-        <li>Use double line breaks between products</li>
-        <li>Use clipboard to paste images directly</li>
-        <li>One image per product</li>
-    </ul>
-</div>
+    <div class="header">
+        <nav class="nav">
+            <div class="brand">IHR Tools</div>
+            <button class="nav-item active" onclick="switchTab('freight-calc', this)">
+                📦 Freight Calc Tool
+            </button>
+            <button class="nav-item" onclick="switchTab('po-update', this)">
+                📝 PO Update
+            </button>
+            <button class="nav-item" onclick="switchTab('doc-drop', this)">
+                📋 New Collections Doc Drop Entry Tool
+            </button>
+            <button class="nav-item" onclick="switchTab('ads-checker', this)">
+                🔍 Ads List Checker
+            </button>
+            <button class="nav-item" onclick="switchTab('po-creation', this)">
+                ➕ PO Creation
+            </button>
+            <button class="nav-item" onclick="switchTab('eta-lookup', this)">
+                ⏰ PO ETA Lookup / New Collections Doc ETA Update
+            </button>
+        </nav>
+    </div>
 
-<div id="main">
-    <h2>Complete Product Data Entry Tool</h2>
-    <textarea id="inputData" rows="25" placeholder="Enter multiple product entries here. Separate each batch with a blank line. Each batch should follow the 11-line format."></textarea>
+    <div class="content">
+        <iframe id="freight-calc" class="tab-pane active"></iframe>
+        <iframe id="po-update" class="tab-pane"></iframe>
+        <iframe id="doc-drop" class="tab-pane"></iframe>
+        <iframe id="ads-checker" class="tab-pane"></iframe>
+        <iframe id="po-creation" class="tab-pane"></iframe>
+        <iframe id="eta-lookup" class="tab-pane"></iframe>
+        
+        <div class="loading" id="loading" style="display: none;">
+            <div class="spinner"></div>
+            Loading tool...
+        </div>
+    </div>
 
-    <div id="dropZone">Drop or paste images here (one per product batch)</div>
-    <div id="preview"></div>
-    <button onclick="generateTemplate()">Generate Output</button>
-
-    <div class="warning" id="warningMessage"></div>
-    <div id="output"></div>
-</div>
-
-<script>
-    let imageLinks = [];
-    const dropZone = document.getElementById('dropZone');
-    const previewContainer = document.getElementById('preview');
-
-    dropZone.addEventListener('paste', async (e) => {
-        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            if (item.kind === 'file') {
-                const file = item.getAsFile();
-                showPreview(file);
-                await uploadImageToImgur(file);
-            }
-        }
-    });
-
-    function showPreview(file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const img = document.createElement("img");
-            img.src = e.target.result;
-            previewContainer.appendChild(img);
+    <script>
+        const tabUrls = {
+            'freight-calc': 'https://emazingalie.github.io/ihrfilesdrop/freight%20calc.html',
+            'po-update': 'https://emazingalie.github.io/ihrfilesdrop/poupdate.html',
+            'doc-drop': 'https://emazingalie.github.io/ihrfilesdrop/index.html',
+            'ads-checker': 'https://emazingalie.github.io/ihrfilesdrop/adslistchecker.html',
+            'po-creation': 'https://emazingalie.github.io/ihrfilesdrop/pocreation.html',
+            'eta-lookup': 'https://emazingalie.github.io/ihrfilesdrop/poetalookup.html'
         };
-        reader.readAsDataURL(file);
-    }
 
-    async function uploadImageToImgur(file) {
-        const formData = new FormData();
-        formData.append("image", file);
+        const loadedTabs = new Set();
 
-        const response = await fetch("https://api.imgur.com/3/image", {
-            method: "POST",
-            headers: {
-                Authorization: "Client-ID b42a88d4f5e048c"
-            },
-            body: formData
-        });
-
-        const data = await response.json();
-        if (data.success) {
-            imageLinks.push(data.data.link);
-        } else {
-            imageLinks.push("");
+        function showLoading() {
+            document.getElementById('loading').style.display = 'flex';
         }
-    }
 
-    function format(val) {
-        return val === "0" ? "" : val;
-    }
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
 
-    function generateTemplate() {
-        const rawData = document.getElementById('inputData').value.trim();
-        const batches = rawData.split(/\n\s*\n/);
-        const output = document.getElementById('output');
-        const warningBox = document.getElementById('warningMessage');
-        let validCount = 0;
-        let invalidCount = 0;
-
-        const headers = [
-            "PO", "Units", "Inventory", "Notes", "PhotoShoot Availability", "Image", "Owner", "Product Title",
-            "Alt text", "Collection", "Supplier", "MPN", "Parent SKU", "Color", "Color 1", "Color 2", "Color 3",
-            "New Colors", "Product Type", "Product Filter 1", "Product Filter 2 Fabric", "Silhouette",
-            "Embellishment", "Fabric", "Print Type", "Mandatory Division", "Mandatory Lifecycle",
-            "Mandatory Seasonality", "Size", "Cost", "Retail", "Mandatory Amazon Retail Price",
-            "Gross Profit Margin", "AMZ Gross Profit Margin", "High Margin/Low Margin",
-            "AMZ High Margin/Low Margin", "List on AMZ", "Exclusive", "Department",
-            "Country of Origin (Fast Fashion)"
-        ];
-
-        let table = "<table><tr>" + headers.map(h => `<th>${h}</th>`).join("") + "</tr>";
-
-        batches.forEach((batch, index) => {
-            const lines = batch.trim().split(/\r?\n/).map(l => l.trim());
-            if (lines.length < 10) {
-                invalidCount++;
-                return;
+        function switchTab(tabId, buttonElement) {
+            // Hide all tab panes
+            const allPanes = document.querySelectorAll('.tab-pane');
+            allPanes.forEach(pane => pane.classList.remove('active'));
+            
+            // Remove active class from all buttons
+            const allButtons = document.querySelectorAll('.nav-item');
+            allButtons.forEach(button => button.classList.remove('active'));
+            
+            // Show selected tab pane
+            const selectedPane = document.getElementById(tabId);
+            selectedPane.classList.add('active');
+            
+            // Add active class to clicked button
+            buttonElement.classList.add('active');
+            
+            // Load the iframe content if not already loaded
+            if (!loadedTabs.has(tabId)) {
+                showLoading();
+                selectedPane.src = tabUrls[tabId];
+                
+                selectedPane.onload = function() {
+                    hideLoading();
+                    loadedTabs.add(tabId);
+                };
+                
+                selectedPane.onerror = function() {
+                    hideLoading();
+                    selectedPane.style.display = 'none';
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'error';
+                    errorDiv.innerHTML = '<p>Failed to load tool</p><p>Please check your connection or try again later.</p>';
+                    selectedPane.parentNode.appendChild(errorDiv);
+                };
             }
+        }
 
-            const [vendor, description, mpn, owner, cost, retail, sizeRange, collection, eta, moq] = lines.slice(0, 10).map(format);
-            const imgUrl = imageLinks[index] || "";
-            const imgLink = imgUrl ? `=IMAGE("${imgUrl}")` : "";
-
-            const exclusive = owner && owner !== "Maryanne" ? "Yes" : "";
-            const department = ["Steph", "Tamara", "Ash"].includes(owner) ? "Rave Wear" : (owner === "Maryanne" ? "Accessories" : "");
-
-            const red = (txt) => `<span class='red-text'>${txt}</span>`;
-
-            const values = [
-                "", moq, eta, "", "", imgLink, owner, description, "", collection, vendor, mpn, "",
-                red("Copy Paste Formula"), "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", sizeRange, cost, retail,
-                red("Copy Paste Formula"), red("Copy Paste Formula"), red("Copy Paste Formula"),
-                red("Copy Paste Formula"), red("Copy Paste Formula"), "No", exclusive, department, "China"
-            ];
-
-            table += "<tr>" + values.map(v => `<td>${v}</td>`).join("") + "</tr>";
-            validCount++;
+        // Load the first tab on page load
+        window.addEventListener('load', function() {
+            const firstTab = document.querySelector('.nav-item.active');
+            if (firstTab) {
+                const tabId = firstTab.getAttribute('onclick').match(/'([^']+)'/)[1];
+                switchTab(tabId, firstTab);
+            }
         });
 
-        table += "</table>";
-        output.innerHTML = table;
-
-        warningBox.innerHTML = `✅ <strong>${validCount}</strong> rows generated. ⚠️ <strong>${invalidCount}</strong> batch(es) skipped due to formatting issues.`;
-    }
-</script>
+        // Handle iframe communication (if needed)
+        window.addEventListener('message', function(event) {
+            // Handle any messages from the loaded tools if needed
+            console.log('Message from iframe:', event.data);
+        });
+    </script>
 </body>
 </html>
